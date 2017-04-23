@@ -1,0 +1,108 @@
+---
+title: "Practical Machine Learning Project"
+author: "Alastair Mak"
+date: "22 April 2017"
+output:
+  pdf_document: default
+  html_document: default
+---
+##Introduction
+Here we cover predicting efficiency and effectiveness of different exercises using wearable technology. We use a Random Forests model to predict which of five outcome classifications to assign to 20 observations in the `testing` dataset, with our predictions given at the end of the document.
+
+##Data and packages
+First, let's download the data and load the packages we'll use later.
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+```{r dpack, warning=FALSE, message=FALSE}
+set.seed(76437)
+library(caret)
+library(randomForest)
+training <- read.csv("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv",
+                     na.strings=c(""," ","NA"))
+testing  <- read.csv("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv",
+                     na.strings=c(""," ","NA"))
+dim(training)
+dim(testing)
+unique(training$classe)
+```
+Looking at the outcome variable `classe` we see that it has five levels, with values from `A` to `E`.
+
+We want to leave the `testing` set for the very end, once we have built and verified our model. Let's split the `training` data set into two, using one dataset to build the model, and the other to test it.
+```{r splits}
+set.seed(76437)
+inTrain <- createDataPartition(training$classe, p=0.7, list=FALSE)
+train1 <- training[inTrain,]
+pretest <- training[-inTrain,]
+```
+We'll use the `train1` dataset to build the model, the `pretest` data to test the model, leaving the `testing` dataset to the very end.
+
+##Data cleaning
+Were we to perform `head(training)`, we would see that there are two columns, `X` and `user_name` that are identifying columns and that we don't want to use to build our model; let's exclude them from all three data sets. This is simple as they're the first two columns in all cases.
+```{r rmCols}
+train1 <- train1[,-c(1,2)]
+pretest <- pretest[,-c(1,2)]
+testing <- testing[,-c(1,2)]
+```
+
+There is a lot of NA data in the `train1` dataset. Rather than imputing the NA values, let's remove any columns that contain at least one NA value.
+```{r rmNA}
+colkeep <- colSums(is.na(train1)) == 0
+train1 <- train1[colkeep == TRUE]
+dim(train1)
+```
+We can see that the `train1` data now has `r dim(train1)[2]` columns now, whereas before it had `r dim(training)[2]`. Let's ensure that the `pretest` and `testing` data contain only these columns as well. We'll also remove the `problem_id` column from `testing`, as this column is not present in either `train1` or `pretest`.
+
+```{r colcut}
+pretest <- pretest[colkeep == TRUE]
+testing <- testing[colkeep == TRUE]
+testing <- testing[,-58] #remove the problem_id column in testing data
+```
+
+##Building the model
+Let's use the Random Forests model building methodology. While it is more computationally intensive and less interpretable than others such as Decision Trees, it typically gives more accurate predictions, which is our priority in this particular instance.
+```{r model}
+#Model build
+set.seed(76437)
+RF <- randomForest(classe ~ ., data=train1, ntree=500, importance=TRUE)
+
+#Display model details
+RF
+```
+We see that the out-of-sample error is low, at 0.12%. We can now use the `RF` model to predict the outcomes on the `pretest` data, and measure the accuracy.
+
+```{r trainpred}
+set.seed(76437)
+#Predicting using this model on the pretest data
+RFp <- predict(RF, newdata=pretest)
+
+#Confusion matrix
+confusionMatrix(RFp, pretest$classe)
+```
+
+We see that the RF model does a very good job at predicting the outcomes on the `pretest` data, with accuracy of `r round(confusionMatrix(RFp, pretest$classe)$overall[1], digits=3)`.
+
+##Predicting on the testing data
+Before predicting on the testing data, we need to make sure the factor variables in the training and test sets have the same levels.
+```{r dtypes}
+#create single vector with common names (to be 100% sure)
+intersection <- intersect(names(train1), names(testing))
+
+#convert data types in testing data to match those in train1
+  for (i in intersection)
+    {
+    if (class(train1[[i]]) == "factor") #if a factor variable,
+      {
+      #set the levels in testing to be equal to those in train1
+      levels(testing[[i]]) <- levels(train1[[i]]) 
+      }
+    }
+```
+
+We can now predict as normal using the testing data.
+```{r testpred}
+set.seed(76437)
+RFt <- predict(RF, newdata=testing)
+RFt
+```
+And we can see that the values are each one of the five levels we saw earlier.
